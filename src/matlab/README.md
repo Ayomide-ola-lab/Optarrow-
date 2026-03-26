@@ -23,7 +23,7 @@ This folder contains a general MATLAB client for OptArrow focused on:
 ## Quick usage
 
 ```matlab
-addpath(genpath(fullfile(pwd, 'matlab')));
+addpath(genpath(fullfile(pwd, 'src', 'matlab')));
 
 cfg = struct( ...
     'name', 'optarrow', ...
