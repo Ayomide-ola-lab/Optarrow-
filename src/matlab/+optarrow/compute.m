@@ -1,5 +1,42 @@
 function result = compute(payload, varargin)
-% compute Submit a generic OptArrow request using Arrow IPC.
+% compute Submit a generic OptArrow request using Arrow IPC transport.
+%
+% NOTE:
+%    'optarrow.compute(...)' is MATLAB package namespace syntax from the
+%    '+optarrow' folder, not object-oriented method dispatch.
+%
+% USAGE:
+%
+%    result = optarrow.compute(payload)
+%    result = optarrow.compute(payload, opts)
+%    import optarrow.*
+%    result = compute(payload)
+%    result = compute(payload, opts)
+%
+% INPUTS:
+%    payload:      struct, request body to send to OptArrow.
+%                  Typical fields include:
+%                    - model      struct, optimization model dictionary
+%                    - model_name char/string, model identifier
+%                    - engine     char/string, backend engine
+%                    - solver     struct, solver definition and parameters
+%                    - time_limit numeric scalar, solve time limit
+%
+% OPTIONAL INPUTS:
+%    opts:         struct with transport overrides.
+%                    - endpoint   char/string, API endpoint URL
+%                    - timeoutSec numeric scalar, timeout in seconds
+%
+% OUTPUT:
+%    result:       struct, decoded JSON response from the OptArrow server.
+%
+% EXAMPLE:
+%    payload = struct();
+%    payload.model = struct('A', struct('row', [0], 'col', [0], 'val', [1]), ...
+%                           'b', [1], 'c', [1], 'lb', [0], 'csense', {{'L'}}, ...
+%                           'osense', 'min');
+%    payload.model_name = 'demo_model';
+%    out = optarrow.compute(payload, struct('timeoutSec', 30));
 
 if nargin < 1 || ~isstruct(payload)
     error('compute expects payload as a struct.');

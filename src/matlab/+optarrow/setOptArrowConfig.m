@@ -1,5 +1,37 @@
 function cfg = setOptArrowConfig(cfg)
-% setOptArrowConfig Set global OptArrow MATLAB adapter configuration.
+% setOptArrowConfig Set global configuration for the OptArrow MATLAB adapter.
+%
+% NOTE:
+%    'optarrow.setOptArrowConfig(...)' is MATLAB package namespace syntax
+%    from the '+optarrow' folder, not object-oriented method dispatch.
+%
+% USAGE:
+%
+%    cfg = optarrow.setOptArrowConfig(cfg)
+%    import optarrow.*
+%    cfg = setOptArrowConfig(cfg)
+%
+% INPUTS:
+%    cfg:          struct, adapter configuration.
+%                  Supported fields:
+%                    - name              char/string, adapter label
+%                    - engine            char/string, backend engine name
+%                    - backendSolver     char/string, solver name
+%                    - backendSolverType char/string, problem class (e.g., 'LP')
+%                    - backendOptions    struct, solver parameter dictionary
+%                    - endpoint          char/string, OptArrow API URL
+%                    - timeoutSec        numeric scalar, timeout in seconds
+%                    - transport         char/string, must be 'arrow'
+%
+% OUTPUT:
+%    cfg:          struct, resolved configuration (input merged with defaults)
+%                  and stored in global variable OPTARROW_CONFIG.
+%
+% EXAMPLE:
+%    cfg = optarrow.setOptArrowConfig(struct( ...
+%        'endpoint', 'http://127.0.0.1:8000/compute', ...
+%        'backendSolver', 'HiGHS', ...
+%        'timeoutSec', 120));
 
 global OPTARROW_CONFIG
 

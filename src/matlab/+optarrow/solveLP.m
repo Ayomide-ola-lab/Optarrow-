@@ -1,5 +1,50 @@
 function result = solveLP(LPproblem, varargin)
-% solveLP Solve a linear problem through OptArrow (general interface).
+% solveLP Solve a linear program through OptArrow (general MATLAB interface).
+%
+% NOTE:
+%    'optarrow.solveLP(...)' is MATLAB package namespace syntax from the
+%    '+optarrow' folder, not object-oriented method dispatch.
+%
+% USAGE:
+%
+%    result = optarrow.solveLP(LPproblem)
+%    result = optarrow.solveLP(LPproblem, opts)
+%    import optarrow.*
+%    result = solveLP(LPproblem)
+%    result = solveLP(LPproblem, opts)
+%
+% INPUTS:
+%    LPproblem:    struct with LP model data.
+%                  Required fields:
+%                    - A        double/sparse [m x n], constraint matrix
+%                    - b        double [m x 1] or [1 x m], RHS vector
+%                    - c        double [n x 1] or [1 x n], objective coeffs
+%                  Optional fields:
+%                    - lb       double [n x 1] or [1 x n], lower bounds
+%                    - ub       double [n x 1] or [1 x n], upper bounds
+%                    - csense   char/string/cellstr [m x 1], {'L','E','G'}
+%                    - osense   numeric scalar or string ('min'/'max')
+%
+% OPTIONAL INPUTS:
+%    opts:         struct with request options.
+%                    - modelName  char/string, model label for backend
+%                    - engine     char/string, backend engine override
+%                    - solver     struct, backend solver specification
+%                    - time_limit numeric scalar, backend time limit
+%                    - endpoint   char/string, OptArrow API endpoint URL
+%                    - timeoutSec numeric scalar, HTTP timeout in seconds
+%
+% OUTPUT:
+%    result:       struct, decoded JSON response returned by OptArrow.
+%
+% EXAMPLE:
+%    LP.A = sparse([1 1; 1 0; 0 1]);
+%    LP.b = [1; 0.7; 0.8];
+%    LP.c = [-1; -1];
+%    LP.lb = [0; 0];
+%    LP.csense = ['L'; 'L'; 'L'];
+%    LP.osense = 1;   % 1=min, -1=max
+%    out = optarrow.solveLP(LP, struct('timeoutSec', 60));
 
 if nargin < 1 || ~isstruct(LPproblem)
     error('LPproblem must be provided as a struct.');
