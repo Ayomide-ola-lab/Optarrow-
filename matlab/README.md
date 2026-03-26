@@ -1,18 +1,16 @@
-# OptArrow MATLAB Interface (Initial Scaffold)
+# OptArrow MATLAB Interface
 
-This folder contains a first MATLAB interface scaffold for OptArrow focused on:
+This folder contains a general MATLAB client for OptArrow focused on:
 
 - Arrow IPC transport (`/compute`) only
-- COBRA-style solver selection compatibility path
 - Scalable sparse model transfer (COO)
 
 ## Files
 
 - `+optarrow/setOptArrowConfig.m`: Set global OptArrow runtime config.
 - `+optarrow/getOptArrowConfig.m`: Read global OptArrow runtime config.
-- `+optarrow/changeCobraSolverOptArrow.m`: Prototype COBRA-style solver switch.
-- `+optarrow/solveCobraLP.m`: COBRA-compatible LP wrapper using OptArrow.
-- `+optarrow/private/statusToCobraStat.m`: Map OptArrow status to COBRA `stat`.
+- `+optarrow/compute.m`: Generic compute call through Arrow IPC.
+- `+optarrow/solveLP.m`: LP convenience wrapper (`LPproblem` struct -> OptArrow payload).
 - `py/optarrow_matlab_bridge.py`: Python bridge for Arrow IPC request/response.
 
 ## MATLAB prerequisites
@@ -36,7 +34,7 @@ cfg = struct( ...
     'endpoint', 'http://127.0.0.1:8000/compute', ...
     'timeoutSec', 120);
 
-optarrow.changeCobraSolverOptArrow(cfg, 'LP');
+optarrow.setOptArrowConfig(cfg);
 
 LPproblem = struct();
 LPproblem.A = sparse([20 10; 10 20; 10 30]);
@@ -47,11 +45,12 @@ LPproblem.ub = [1000; 1000];
 LPproblem.csense = ['L'; 'L'; 'L'];
 LPproblem.osense = -1;
 
-sol = optarrow.solveCobraLP(LPproblem, struct('modelName', 'matlab_lp'));
-disp(sol)
+result = optarrow.solveLP(LPproblem, struct('modelName', 'matlab_lp'));
+disp(result)
 ```
 
 ## Notes
 
 - This is intentionally Arrow-only to avoid duplicate JSON code paths.
-- Intended as a clean starting point for COBRA Toolbox upstream integration.
+- This repository intentionally contains no toolbox-specific adaptor code.
+- Adaptor logic (e.g., COBRA Toolbox integration) should live in the downstream project.
