@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "product_mix_lp",
+      "kind": "fixture",
+      "active": false,
+      "path": "fixtures/product_mix_lp.json"
+    },
+    {
+      "id": "transportation_lp",
+      "kind": "fixture",
+      "active": false,
+      "path": "fixtures/transportation_lp.json"
+    },
+    {
+      "id": "tutorial_qp",
+      "kind": "fixture",
+      "active": false,
+      "path": "fixtures/tutorial_qp.json"
+    },
+    {
+      "id": "netlib_afiro_lp",
+      "kind": "fixture",
+      "active": true,
+      "path": "fixtures/netlib_afiro_lp.json"
+    },
+    {
+      "id": "netlib_sc50b_lp",
+      "kind": "fixture",
+      "active": true,
+      "path": "fixtures/netlib_sc50b_lp.json"
+    },
+    {
+      "id": "netlib_sc105_lp",
+      "kind": "fixture",
+      "active": true,
+      "path": "fixtures/netlib_sc105_lp.json"
+    },
+    {
+      "id": "maros_hs76_qp",
+      "kind": "fixture",
+      "active": true,
+      "path": "fixtures/maros_hs76_qp.json"
+    },
+    {
+      "id": "maros_zecevic2_qp",
+      "kind": "fixture",
+      "active": true,
+      "path": "fixtures/maros_zecevic2_qp.json"
+    },
+    {
+      "id": "afiro_netlib_raw",
+      "kind": "raw",
+      "active": false,
+      "path": "raw/netlib/afiro.emps",
+      "source": {
+        "suite": "Netlib LP",
+        "url": "https://www.netlib.org/lp/data/afiro",
+        "reference_url": "https://sparse.tamu.edu/LPnetlib/lp_afiro"
+      },
+      "expected": {
+        "status": "optimal",
+        "objective": -464.75314286
+      },
+      "skip_reason": "Canonical expanded MPS is also vendored via the active fixture source path."
+    },
+    {
+      "id": "sc50b_netlib_raw",
+      "kind": "raw",
+      "active": false,
+      "path": "raw/netlib/sc50b.emps",
+      "source": {
+        "suite": "Netlib LP",
+        "url": "https://www.netlib.org/lp/data/sc50b",
+        "reference_url": "https://sparse.tamu.edu/LPnetlib/lp_sc50b"
+      },
+      "expected": {
+        "status": "optimal",
+        "objective": -70.0
+      },
+      "skip_reason": "Canonical expanded MPS is also vendored via the active fixture source path."
+    },
+    {
+      "id": "sc105_netlib_raw",
+      "kind": "raw",
+      "active": false,
+      "path": "raw/netlib/sc105.emps",
+      "source": {
+        "suite": "Netlib LP",
+        "url": "https://www.netlib.org/lp/data/sc105",
+        "reference_url": "https://sparse.tamu.edu/LPnetlib/lp_sc105"
+      },
+      "expected": {
+        "status": "optimal",
+        "objective": -52.202061212
+      },
+      "skip_reason": "Canonical expanded MPS is also vendored via the active fixture source path."
+    },
+    {
+      "id": "qplib_0067_raw",
+      "kind": "raw",
+      "active": false,
+      "path": "raw/qplib/QPLIB_0067.qplib",
+      "source": {
+        "suite": "QPLIB",
+        "url": "https://qplib.zib.de/qplib/QPLIB_0067.qplib",
+        "reference_url": "https://qplib.zib.de/QPLIB_0067.html"
+      },
+      "expected": {
+        "status": "optimal",
+        "objective": -110942.0
+      },
+      "skip_reason": "This instance is a binary quadratic problem and is outside current OptArrow LP/QP continuous benchmark coverage."
+    },
+    {
+      "id": "qplib_8845_raw",
+      "kind": "raw",
+      "active": false,
+      "path": "raw/qplib/QPLIB_8845.lp",
+      "source": {
+        "suite": "QPLIB",
+        "url": "https://qplib.zib.de/lp/QPLIB_8845.lp",
+        "reference_url": "https://qplib.zib.de/QPLIB_8845.html"
+      },
+      "expected": {
+        "status": "optimal",
+        "objective": 10907992.49
+      },
+      "skip_reason": "Official convex continuous QP candidate is vendored, but it is not active yet because it is too heavy for the current per-PR benchmark target and did not finish in a reasonable local trial through the current Python QP path."
+    },
+    {
+      "id": "maros_hs76_raw",
+      "kind": "raw",
+      "active": false,
+      "path": "raw/maros_meszaros/HS76.mat",
+      "source": {
+        "suite": "Maros-Meszaros",
+        "url": "https://github.com/qpsolvers/maros_meszaros_qpbenchmark",
+        "reference_url": "https://doi.org/10.1080/10556789908805768"
+      },
+      "expected": {
+        "status": "optimal",
+        "objective": -4.68181818
+      },
+      "skip_reason": "Canonical benchmark source is also vendored via the active fixture source path."
+    },
+    {
+      "id": "maros_zecevic2_raw",
+      "kind": "raw",
+      "active": false,
+      "path": "raw/maros_meszaros/ZECEVIC2.mat",
+      "source": {
+        "suite": "Maros-Meszaros",
+        "url": "https://github.com/qpsolvers/maros_meszaros_qpbenchmark",
+        "reference_url": "https://doi.org/10.1080/10556789908805768"
+      },
+      "expected": {
+        "status": "optimal",
+        "objective": -4.125
+      },
+      "skip_reason": "Canonical benchmark source is also vendored via the active fixture source path."
+    }
+  ]
+}

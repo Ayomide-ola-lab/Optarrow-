@@ -77,23 +77,9 @@ class Controller:
             KeyError: if required columns are missing in the payload.
         """
         try:
-            engine = payload.column("engine")[0].as_py()
-            optimization_service = self.service_factory.create_service(engine)
-            solver_model = self.model_factory.create_model("solver", payload.column("solver")[0].as_py())
-            model_name = payload.column("model_name")[0].as_py()
-            data_model = self.model_factory.create_model(
-                solver_model.solver_type.lower(),
-                payload.column("model")[0].as_py()
-            )
-            time_limit = 300
-            if "time_limit" in payload.column_names:
-                if payload.column("time_limit")[0].as_py() is not None:
-                    time_limit = payload.column("time_limit")[0].as_py()
-            result = optimization_service.compute(data_model, solver_model, model_name, time_limit)
-            if "success" in result.column_names and result.column("success")[0].as_py():
-                return True, result
-            else:
-                return False, result
+            raw_payload = unpack_pa_table_dict(payload)
+            success, result = self.compute_dict(raw_payload)
+            return success, dict_to_pa_table(result)
         except Exception as e:
             return False, pa.RecordBatch.from_pydict({
                     "error_message": [str(e)]

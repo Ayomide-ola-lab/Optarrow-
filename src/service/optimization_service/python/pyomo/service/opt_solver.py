@@ -8,12 +8,12 @@ import time
 class PyomoSolver(BaseSolver):
     """Solver for LP and QP optimization problems using Pyomo."""
     def __init__(self):
-        self.model = {}
         super().__init__()
 
 
     def run(self, params:dict) -> dict:
         # Convert the data into an model acceptable format
+        self.model = {}
         for k, v in params.items():
             self.model[k] = v
         # Send the data to model
