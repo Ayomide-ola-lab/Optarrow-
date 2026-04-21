@@ -69,7 +69,20 @@ class LPProblem(BaseProblem):
             row_exprs[r].append((c, v))
         
         for j in range(self.n_row):
-            expr = sum(coeff * model.x[i] for i, coeff in row_exprs[j])
+            entries = row_exprs[j]
+            if not entries:
+                # Some imported benchmark models contain redundant zero rows
+                # such as 0 <= 0 after presolved slack handling. Skip those
+                # tautologies, but surface contradictory empty rows.
+                if self.csense[j] in ['L', '<'] and self.b[j] >= 0:
+                    continue
+                if self.csense[j] in ['G', '>'] and self.b[j] <= 0:
+                    continue
+                if self.csense[j] in ['E', '='] and self.b[j] == 0:
+                    continue
+                raise ValueError(f"Empty constraint row {j} is not satisfiable: sense={self.csense[j]}, rhs={self.b[j]}")
+
+            expr = sum(coeff * model.x[i] for i, coeff in entries)
             if self.csense[j] in ['E', '=']:
                 model.constraints.add(expr == self.b[j])
             elif self.csense[j] in ['L', '<']:

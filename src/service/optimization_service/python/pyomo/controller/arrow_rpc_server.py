@@ -136,7 +136,9 @@ class FlightServer(pyarrow.flight.FlightServerBase):
         logger.info("Computing model:")
         try:
             result = solver.run(input_params)
-            logger.info(f"Size: {(sys.getsizeof(result.get("solution")) / 1024):.2f} KiB")
+            solution = result.get("solution")
+            if solution is not None:
+                logger.info(f"Size: {(sys.getsizeof(solution) / 1024):.2f} KiB")
             logger.info(result)
             result_table = dict_to_pa_table(result)
         except Exception as e:

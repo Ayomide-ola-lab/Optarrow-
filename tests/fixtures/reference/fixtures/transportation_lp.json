@@ -1,0 +1,45 @@
+{
+  "id": "transportation_lp",
+  "suite": "optarrow_curated",
+  "source": {
+    "type": "project_tutorial",
+    "path": "docs/source/tutorials/lp_example2.ipynb",
+    "note": "Balanced transportation LP with expected total cost documented in the tutorial."
+  },
+  "model_type": "LP",
+  "supported_engines": [
+    "python",
+    "julia"
+  ],
+  "solver": {
+    "solver_name": "HiGHS",
+    "solver_type": "LP",
+    "solver_params": {}
+  },
+  "payload": {
+    "model": {
+      "A": {
+        "row": [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4],
+        "col": [0, 1, 2, 3, 4, 5, 0, 3, 1, 4, 2, 5],
+        "val": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+      },
+      "b": [120.0, 80.0, 70.0, 90.0, 40.0],
+      "c": [2.0, 3.0, 1.0, 5.0, 4.0, 6.0],
+      "lb": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "ub": [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
+      "csense": ["E", "E", "E", "E", "E"],
+      "osense": "min"
+    }
+  },
+  "expected": {
+    "status": "optimal",
+    "objective": {
+      "value": 490.0,
+      "atol": 1e-06
+    },
+    "solution": {
+      "value": [70.0, 10.0, 40.0, 0.0, 80.0, 0.0],
+      "atol": 1e-06
+    }
+  }
+}

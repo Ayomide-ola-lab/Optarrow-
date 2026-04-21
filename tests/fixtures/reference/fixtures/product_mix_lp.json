@@ -1,0 +1,45 @@
+{
+  "id": "product_mix_lp",
+  "suite": "optarrow_curated",
+  "source": {
+    "type": "project_example",
+    "path": "tests/ipc_http_test/test_pyomo_lp.py",
+    "note": "Canonical product-mix LP already used as a smoke test in the repository."
+  },
+  "model_type": "LP",
+  "supported_engines": [
+    "python",
+    "julia"
+  ],
+  "solver": {
+    "solver_name": "HiGHS",
+    "solver_type": "LP",
+    "solver_params": {}
+  },
+  "payload": {
+    "model": {
+      "A": {
+        "col": [0, 1, 0, 1, 0, 1],
+        "row": [0, 0, 1, 1, 2, 2],
+        "val": [20.0, 10.0, 10.0, 20.0, 10.0, 30.0]
+      },
+      "b": [200.0, 120.0, 150.0],
+      "c": [5.0, 12.0],
+      "lb": [0.0, 0.0],
+      "ub": [1000.0, 1000.0],
+      "osense": "max",
+      "csense": ["L", "L", "L"]
+    }
+  },
+  "expected": {
+    "status": "optimal",
+    "objective": {
+      "value": 66.0,
+      "atol": 1e-06
+    },
+    "solution": {
+      "value": [6.0, 3.0],
+      "atol": 1e-06
+    }
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "id": "maros_hs35_qp",
+  "suite": "Maros-Meszaros",
+  "source": {
+    "type": "official_benchmark",
+    "path": "tests/fixtures/reference/raw/maros_meszaros/HS35.mat",
+    "url": "https://github.com/qpsolvers/maros_meszaros_qpbenchmark",
+    "reference_url": "https://doi.org/10.1080/10556789908805768",
+    "note": "Optimal objective published in Maros and Meszaros, A Repository of Convex Quadratic Programming Problems (1999)."
+  },
+  "model_type": "QP",
+  "supported_engines": [
+    "python"
+  ],
+  "solver": {
+    "solver_name": "HiGHS",
+    "solver_type": "QP",
+    "solver_params": {}
+  },
+  "payload": {
+    "model": {
+      "Q": {
+        "row": [
+          0,
+          1,
+          2,
+          0,
+          1,
+          0,
+          2
+        ],
+        "col": [
+          0,
+          0,
+          0,
+          1,
+          1,
+          2,
+          2
+        ],
+        "val": [
+          4.0,
+          2.0,
+          2.0,
+          2.0,
+          4.0,
+          2.0,
+          2.0
+        ]
+      },
+      "c": [
+        -8.0,
+        -6.0,
+        -4.0
+      ],
+      "lb": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ub": [
+        1e+30,
+        1e+30,
+        1e+30
+      ],
+      "osense": "min",
+      "G": {
+        "row": [
+          0,
+          0,
+          0
+        ],
+        "col": [
+          0,
+          1,
+          2
+        ],
+        "val": [
+          1.0,
+          1.0,
+          2.0
+        ]
+      },
+      "h": [
+        3.0
+      ]
+    }
+  },
+  "expected": {
+    "status": "optimal",
+    "objective": {
+      "value": 0.11111111,
+      "atol": 1e-05
+    }
+  }
+}

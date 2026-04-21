@@ -1,9 +1,10 @@
 import logging
 from pyomo.environ import *
 import numpy as np
+import scipy.sparse as spa
 from pyomo.opt import SolverStatus, TerminationCondition
 import pyarrow.compute as pc
-from gethighs import HiGHS
+import highspy
 import os
 import gc
 import time
@@ -138,21 +139,12 @@ class QPProblem(BaseProblem):
         os.environ["LD_LIBRARY_PATH"] = "/usr/local/lib:" + os.environ.get("LD_LIBRARY_PATH", "")
         if self.model is None or self.solver is None:
             raise RuntimeError("Model not built or solver not assigned.")
-        sol_path = "./sol.sol"
         time_limit = timeout
         if "highs" in self.solver.name.lower(): 
             try:
-                # map -1, 0, 1 with "off", "choose", "on" to make it conform with standards of other python engines
-                for item in solver_params:
-                    if highs_param_map[solver_params[item]] is not None:
-                        solver_params[item] = highs_param_map[solver_params[item]]
-                opt = HiGHS(solution_file=sol_path, log_file="/dev/null", **solver_params)
-                result = opt.solve(self.model, time_limit=time_limit)
+                self._solve_with_highspy(solver_params, time_limit)
             except Exception as e:
-                # remove tmp folder
-                if os.path.exists("./tmp"):
-                    shutil.rmtree("./tmp", )
-                raise RuntimeError("HiGHS solve failed, check HiGHS installation (QP requires separate HiGHS installation).")
+                raise RuntimeError("HiGHS solve failed via highspy backend.") from e
         else:
             opt = SolverFactory(self.solver.name.lower())
             if solver_params is not None and solver_params != {}:
@@ -161,42 +153,7 @@ class QPProblem(BaseProblem):
             result = opt.solve(self.model, tee=True, timelimit=time_limit)
 
         if "highs" in self.solver.name.lower(): 
-            self.status = str(opt.status)
-            if self.status == "Optimal":
-                # Get from the sol file
-                x = []
-                with open(sol_path, "r") as f:
-                    lines = f.readlines()
-                    section = None
-                    is_primal = False
-                    for j, line in enumerate(lines):
-                        if "# Primal solution values" in line:
-                            is_primal = True
-                            continue
-                        if "Columns" in line:
-                            section = "col"
-                            continue
-                        if "Rows" in line:
-                            section = "row"
-                            continue
-                        if "Dual solution values" in line:
-                            is_primal = False
-                            continue
-                        if is_primal and section == "col":
-                            parts = line.strip().split()
-                            val = float(parts[-1])
-                            x.append(val)
-                        
-                
-                if os.path.exists(sol_path):
-                    os.remove(sol_path)
-                self.solution = [x]
-                self.objective_value = value(opt.objective)
-                if self.osense == 1:
-                    self.objective_value = -self.objective_value
-            else:
-                self.solution = self.status
-                self.objective_value = None
+            return
         else:
             if result.solver.status == SolverStatus.ok:
                 logger.info("Solved.")
@@ -208,3 +165,111 @@ class QPProblem(BaseProblem):
                 self.objective_value = None
                 self.solution = None
                 self.status = str(result.solver.termination_condition)
+
+    def _solve_with_highspy(self, solver_params=None, timeout=300):
+        solver_params = solver_params or {}
+        highs = highspy.Highs()
+        highs.setOptionValue("output_flag", False)
+        highs.setOptionValue("time_limit", float(timeout))
+
+        for key, value in solver_params.items():
+            mapped = highs_param_map.get(value, value)
+            try:
+                highs.setOptionValue(key, mapped)
+            except Exception:
+                logger.warning("Ignoring unsupported HiGHS parameter %s=%s", key, value)
+
+        model = highspy.HighsModel()
+        model.lp_ = self._build_highs_lp()
+        model.hessian_ = self._build_highs_hessian()
+
+        status = highs.passModel(model)
+        if status != highspy.HighsStatus.kOk:
+            raise RuntimeError(f"Failed to pass QP model to highspy: {status}")
+
+        status = highs.run()
+        if status != highspy.HighsStatus.kOk:
+            raise RuntimeError(f"highspy run failed: {status}")
+
+        self.status = highs.modelStatusToString(highs.getModelStatus()).lower()
+        if self.status == "optimal":
+            solution = highs.getSolution().col_value
+            self.solution = list(solution)
+            self.objective_value = float(highs.getObjectiveValue())
+        else:
+            self.solution = None
+            self.objective_value = None
+
+    def _build_highs_lp(self):
+        rows = []
+        cols = []
+        vals = []
+        row_lower = []
+        row_upper = []
+
+        if self.A is not None and len(self.A["row"]):
+            rows.extend(int(r) for r in self.A["row"])
+            cols.extend(int(c) for c in self.A["col"])
+            vals.extend(float(v) for v in self.A["val"])
+            row_lower.extend(float(v) for v in self.b.tolist())
+            row_upper.extend(float(v) for v in self.b.tolist())
+
+        if self.G is not None and len(self.G["row"]):
+            offset = len(row_lower)
+            rows.extend(offset + int(r) for r in self.G["row"])
+            cols.extend(int(c) for c in self.G["col"])
+            vals.extend(float(v) for v in self.G["val"])
+            row_lower.extend([-highspy.kHighsInf] * len(self.h))
+            row_upper.extend(float(v) for v in self.h.tolist())
+
+        n_row = len(row_lower)
+        A_csc = spa.coo_matrix((vals, (rows, cols)), shape=(n_row, self.n)).tocsc()
+
+        lp = highspy.HighsLp()
+        lp.num_col_ = int(self.n)
+        lp.num_row_ = int(n_row)
+        lp.col_cost_ = np.array(self.c if self.osense == -1 else -self.c, dtype=np.float64)
+        lp.col_lower_ = np.array(self.lb, dtype=np.float64)
+        lp.col_upper_ = np.array(self.ub, dtype=np.float64)
+        lp.row_lower_ = np.array(row_lower, dtype=np.float64)
+        lp.row_upper_ = np.array(row_upper, dtype=np.float64)
+        lp.offset_ = 0.0
+        lp.sense_ = highspy.ObjSense.kMinimize
+        lp.a_matrix_.format_ = highspy.MatrixFormat.kColwise
+        lp.a_matrix_.num_col_ = int(self.n)
+        lp.a_matrix_.num_row_ = int(n_row)
+        lp.a_matrix_.start_ = A_csc.indptr.astype(np.int32)
+        lp.a_matrix_.index_ = A_csc.indices.astype(np.int32)
+        lp.a_matrix_.value_ = A_csc.data.astype(np.float64)
+        return lp
+
+    def _build_highs_hessian(self):
+        entries = defaultdict(float)
+        for r, c, v in zip(self.Q["row"], self.Q["col"], self.Q["val"]):
+            row = int(r)
+            col = int(c)
+            value = float(v if self.osense == -1 else -v)
+            if row >= col:
+                entries[(row, col)] += value
+            else:
+                entries[(col, row)] += value
+
+        if entries:
+            h_rows = []
+            h_cols = []
+            h_vals = []
+            for (row, col), value in sorted(entries.items(), key=lambda item: (item[0][1], item[0][0])):
+                h_rows.append(row)
+                h_cols.append(col)
+                h_vals.append(value)
+            H_csc = spa.coo_matrix((h_vals, (h_rows, h_cols)), shape=(self.n, self.n)).tocsc()
+        else:
+            H_csc = spa.csc_matrix((self.n, self.n), dtype=np.float64)
+
+        hessian = highspy.HighsHessian()
+        hessian.dim_ = int(self.n)
+        hessian.format_ = highspy.HessianFormat.kTriangular
+        hessian.start_ = H_csc.indptr.astype(np.int32)
+        hessian.index_ = H_csc.indices.astype(np.int32)
+        hessian.value_ = H_csc.data.astype(np.float64)
+        return hessian

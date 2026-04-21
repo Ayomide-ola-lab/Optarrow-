@@ -2,12 +2,14 @@
 FastAPI RESTful API for OptArrow
 This module defines the FastAPI application and its endpoints for handling computation requests.
 """
+import time
 import pyarrow as pa
 from fastapi import Request
 from fastapi import FastAPI, status
 from fastapi.responses import Response, JSONResponse
 from fastapi.encoders import jsonable_encoder
 from api.controllers import Controller
+from api.flat_arrow_schema import decode_request, encode_response, encode_error
 from utils.api_utils import write_table_to_ipc_bytes
 from arrow_table_dict_conversion import dict_to_pa_table, unpack_pa_table_dict
 
@@ -48,6 +50,50 @@ async def compute_json(request: Request) -> Response:
             status_code = status.HTTP_400_BAD_REQUEST,
             media_type= "application/json"
         )
+
+@app.post("/cobra/compute")
+async def cobra_compute(request: Request) -> Response:
+    """Solve a COBRA optimization problem via the flat Arrow IPC protocol.
+
+    Accepts an Arrow IPC stream with the flat COBRA request schema (see
+    cobra_arrow_schema.py) and returns an Arrow IPC stream with the flat
+    response schema. No nested structs, no JSON — pure Arrow on both sides.
+    """
+    t0 = time.perf_counter()
+    try:
+        raw = await request.body()
+        reader = pa.ipc.open_stream(raw)
+        table = reader.read_all()
+
+        payload = decode_request(table)
+        success, result_dict = controller.compute_dict(payload)
+        elapsed = time.perf_counter() - t0
+
+        result_dict["time"] = elapsed
+        response_table = encode_response(result_dict, elapsed=elapsed)
+        ipc_bytes = write_table_to_ipc_bytes(response_table)
+
+        http_status = status.HTTP_200_OK if success else status.HTTP_500_INTERNAL_SERVER_ERROR
+        return Response(
+            content=ipc_bytes,
+            status_code=http_status,
+            media_type="application/vnd.apache.arrow.stream",
+        )
+    except (ValueError, KeyError) as e:
+        error_table = encode_error(f"{type(e).__name__}: {e}")
+        return Response(
+            content=write_table_to_ipc_bytes(error_table),
+            status_code=status.HTTP_400_BAD_REQUEST,
+            media_type="application/vnd.apache.arrow.stream",
+        )
+    except Exception as e:
+        error_table = encode_error(f"{type(e).__name__}: {e}")
+        return Response(
+            content=write_table_to_ipc_bytes(error_table),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            media_type="application/vnd.apache.arrow.stream",
+        )
+
 
 @app.post("/compute")
 async def compute(request: Request) -> Response:
