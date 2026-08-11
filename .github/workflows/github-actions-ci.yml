@@ -24,11 +24,6 @@ jobs:
           virtualenvs-path: ~/venv
           installer-parallel: true
 
-      - name: Set up Julia
-        uses: julia-actions/setup-julia@v1
-        with:
-          version: '1.11.5'
-
       - name: Set up Poetry and install dependencies
         run: |
             ls
@@ -45,10 +40,16 @@ jobs:
             cd build && ctest
             PATH=$PATH:/opt/highs/HiGHS/build/bin
             echo "/opt/highs/HiGHS/build/bin" >> $GITHUB_PATH
-            cd $GITHUB_WORKSPACE
+            cd /tmp
+            wget https://julialang2eastus2.blob.core.windows.net/julialang2/bin/linux/x64/1.11/julia-1.11.5-linux-x86_64.tar.gz
+            tar -xzf julia-1.11.5-linux-x86_64.tar.gz
+            mv julia-1.11.5 /opt/julia
+            ln -s /opt/julia/bin/julia /usr/bin/julia
+            julia --version
+            cd /__w/OptArrow/OptArrow
             julia --project=./src/service/optimization_service/julia -e "import Pkg; Pkg.instantiate()"
 
-            cd $GITHUB_WORKSPACE
+            cd /__w/OptArrow/OptArrow
             poetry install --no-interaction --no-ansi --no-root
             echo "export LD_LIBRARY_PATH=\"$LD_LIBRARY_PATH:/usr/local/lib\"" >> /etc/profile.d/myenv.sh
             echo "export PATH=\"$PATH:/opt/highs/HiGHS/build/bin:$HOME/.local/bin\"" >> /etc/profile.d/myenv.sh
