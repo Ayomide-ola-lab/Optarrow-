@@ -41,7 +41,7 @@ jobs:
             PATH=$PATH:/opt/highs/HiGHS/build/bin
             echo "/opt/highs/HiGHS/build/bin" >> $GITHUB_PATH
             cd /tmp
-            wget https://julialang2eastus2.blob.core.windows.net/julialang2/bin/linux/x64/1.11/julia-1.11.5-linux-x86_64.tar.gz
+            wget https://julialangnightlies-s3.julialang.org/bin/linux/x64/1.11/julia-1.11.5-linux-x86_64.tar.gz
             tar -xzf julia-1.11.5-linux-x86_64.tar.gz
             mv julia-1.11.5 /opt/julia
             ln -s /opt/julia/bin/julia /usr/bin/julia
