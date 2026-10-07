@@ -1,166 +1,128 @@
-function result = solveLP(LPproblem, varargin)
-% solveLP Solve a linear program through OptArrow (general MATLAB interface).
+function result = solveLP(LPproblem, opts)
+% solveLP  Solve a COBRA-style LP problem via the OptArrow Gateway.
 %
 % NOTE:
 %    'optarrow.solveLP(...)' is MATLAB package namespace syntax from the
 %    '+optarrow' folder, not object-oriented method dispatch.
 %
+% Convenience wrapper around optarrow.compute that accepts a standard COBRA
+% LP struct and handles COO serialization automatically.
+%
 % USAGE:
 %
 %    result = optarrow.solveLP(LPproblem)
 %    result = optarrow.solveLP(LPproblem, opts)
-%    import optarrow.*
-%    result = solveLP(LPproblem)
-%    result = solveLP(LPproblem, opts)
 %
 % INPUTS:
-%    LPproblem:    struct with LP model data.
-%                  Required fields:
-%                    - A        double/sparse [m x n], constraint matrix
-%                    - b        double [m x 1] or [1 x m], RHS vector
-%                    - c        double [n x 1] or [1 x n], objective coeffs
-%                  Optional fields:
-%                    - lb       double [n x 1] or [1 x n], lower bounds
-%                    - ub       double [n x 1] or [1 x n], upper bounds
-%                    - csense   char/string/cellstr [m x 1], {'L','E','G'}
-%                    - osense   numeric scalar or string ('min'/'max')
+%    LPproblem   struct with fields:
+%                  A       sparse/dense matrix  constraint matrix (m x n)
+%                  b       double               RHS vector (m x 1)
+%                  c       double               objective vector (n x 1)
+%                  lb      double               lower bounds (n x 1)
+%                  ub      double               upper bounds (n x 1) (optional, default 1e30)
+%                  csense  char/cell/string     sense per row: 'L','E','G'
+%                  osense  numeric/char         -1 or 'max' to maximize, 1 or 'min' to minimize
 %
-% OPTIONAL INPUTS:
-%    opts:         struct with request options.
-%                    - modelName  char/string, model label for backend
-%                    - engine     char/string, backend engine override
-%                    - solver     struct, backend solver specification
-%                    - time_limit numeric scalar, backend time limit
-%                    - endpoint   char/string, OptArrow API endpoint URL
-%                    - timeoutSec numeric scalar, HTTP timeout in seconds
+%    opts        struct (optional) with fields:
+%                  modelName   char     label for logging (default: 'matlab_lp')
+%                  engine      char     'python' | 'julia' (default from config)
+%                  solver      char     'HiGHS' | 'Gurobi' | ... (default from config)
+%                  timeLimit   double   solver time limit in seconds (default: 300)
+%                  endpoint    char     Gateway URL override
+%                  transport   char     'auto' | 'arrow' | 'json'
 %
 % OUTPUT:
-%    result:       struct, decoded JSON response returned by OptArrow.
+%    result   struct with fields:
+%               success  logical
+%               status   char
+%               stat     double   1=optimal, 0=infeasible, 2=unbounded, -1=error
+%               obj_val  double
+%               solution double[]
+%               dual     double[]
+%               rcost    double[]
+%               slack    double[]
 %
 % EXAMPLE:
-%    LP.A = sparse([1 1; 1 0; 0 1]);
-%    LP.b = [1; 0.7; 0.8];
-%    LP.c = [-1; -1];
-%    LP.lb = [0; 0];
-%    LP.csense = ['L'; 'L'; 'L'];
-%    LP.osense = 1;   % 1=min, -1=max
-%    out = optarrow.solveLP(LP, struct('timeoutSec', 60));
+%
+%    LPproblem.A      = sparse([20 10; 10 20; 10 30]);
+%    LPproblem.b      = [200; 120; 150];
+%    LPproblem.c      = [5; 12];
+%    LPproblem.lb     = [0; 0];
+%    LPproblem.ub     = [1000; 1000];
+%    LPproblem.csense = ['L'; 'L'; 'L'];
+%    LPproblem.osense = -1;
+%    result = optarrow.solveLP(LPproblem);
+%
+% .. Author: - Farid Zare 12/04/2026
 
 if nargin < 1 || ~isstruct(LPproblem)
-    error('LPproblem must be provided as a struct.');
+    error('optarrow.solveLP: LPproblem must be a struct.');
+end
+if nargin < 2
+    opts = struct();
 end
 
-opts = struct();
-if nargin >= 2 && isstruct(varargin{1})
-    opts = varargin{1};
-end
+cfg = optarrow.getOptArrowConfig();
 
-payload = struct();
-payload.model = localBuildModelDict(LPproblem);
-payload.model_name = 'optarrow_lp_model';
+modelName = localGetOr(opts, 'modelName', 'matlab_lp');
+engine    = localGetOr(opts, 'engine',    localGetOr(cfg, 'engine',         'python'));
+solver    = localGetOr(opts, 'solver',    localGetOr(cfg, 'backendSolver',  'HiGHS'));
+timeLimit = localGetOr(opts, 'timeLimit', 300);
 
-if isfield(opts, 'modelName') && ~isempty(opts.modelName)
-    payload.model_name = opts.modelName;
-end
-
-if isfield(opts, 'engine') && ~isempty(opts.engine)
-    payload.engine = opts.engine;
-end
-
-if isfield(opts, 'solver') && ~isempty(opts.solver)
-    payload.solver = opts.solver;
-end
-
-if isfield(opts, 'time_limit')
-    payload.time_limit = opts.time_limit;
-end
-
-computeOpts = struct();
-if isfield(opts, 'endpoint')
-    computeOpts.endpoint = opts.endpoint;
-end
-if isfield(opts, 'timeoutSec')
-    computeOpts.timeoutSec = opts.timeoutSec;
-end
-
-if isempty(fieldnames(computeOpts))
-    response = optarrow.compute(payload);
-else
-    response = optarrow.compute(payload, computeOpts);
-end
-
-result = response;
-end
-
-function model = localBuildModelDict(LPproblem)
-if ~isfield(LPproblem, 'A') || ~isfield(LPproblem, 'b') || ~isfield(LPproblem, 'c')
-    error('LPproblem must include fields A, b, and c.');
-end
-
+% Build COO sparse A
 A = LPproblem.A;
-if ~issparse(A)
-    A = sparse(A);
-end
+if ~issparse(A), A = sparse(A); end
+[r, c, v] = find(A);
+model.A = struct( ...
+    'row',   int64(r(:)' - 1), ...
+    'col',   int64(c(:)' - 1), ...
+    'val',   double(v(:)'), ...
+    'shape', int64([size(A,1), size(A,2)]));
 
-[rowIdx, colIdx, val] = find(A);
-
-model = struct();
-model.A = struct('row', rowIdx - 1, 'col', colIdx - 1, 'val', val);
-model.b = LPproblem.b(:)';
-model.c = LPproblem.c(:)';
-
-if isfield(LPproblem, 'lb') && ~isempty(LPproblem.lb)
-    model.lb = LPproblem.lb(:)';
-else
-    model.lb = zeros(1, size(A, 2));
-end
+model.b  = double(LPproblem.b(:)');
+model.c  = double(LPproblem.c(:)');
+model.lb = double(LPproblem.lb(:)');
 
 if isfield(LPproblem, 'ub') && ~isempty(LPproblem.ub)
-    model.ub = LPproblem.ub(:)';
+    model.ub = double(LPproblem.ub(:)');
+else
+    model.ub = repmat(1e30, 1, size(A,2));
 end
 
-model.csense = localNormalizeCsense(LPproblem, size(A, 1));
-model.osense = localNormalizeOsense(LPproblem);
-end
-
-function csense = localNormalizeCsense(LPproblem, nRows)
 if isfield(LPproblem, 'csense') && ~isempty(LPproblem.csense)
-    raw = LPproblem.csense;
-    if ischar(raw)
-        csense = cellstr(raw(:));
-    elseif isstring(raw)
-        csense = cellstr(raw(:));
-    elseif iscell(raw)
-        csense = raw;
-    else
-        error('Unsupported csense format.');
-    end
+    model.csense = LPproblem.csense;
 else
-    csense = repmat({'E'}, nRows, 1);
+    model.csense = repmat('E', size(A,1), 1);
 end
 
-csense = upper(string(csense));
-csense = cellstr(csense);
-end
-
-function osense = localNormalizeOsense(LPproblem)
-if ~isfield(LPproblem, 'osense') || isempty(LPproblem.osense)
-    osense = 'min';
-    return;
-end
-
-if isnumeric(LPproblem.osense)
-    if LPproblem.osense == -1
-        osense = 'max';
-    else
-        osense = 'min';
-    end
+if isfield(LPproblem, 'osense')
+    model.osense = LPproblem.osense;
 else
-    raw = lower(string(LPproblem.osense));
-    if raw == "max"
-        osense = 'max';
-    else
-        osense = 'min';
-    end
+    model.osense = 'min';
+end
+
+payload               = struct();
+payload.problem_type  = 'LP';
+payload.engine        = engine;
+payload.solver_name   = solver;
+payload.model_name    = modelName;
+payload.time_limit    = timeLimit;
+payload.solver_params = struct();
+payload.model         = model;
+
+computeOpts = struct();
+if isfield(opts, 'endpoint'),  computeOpts.endpoint  = opts.endpoint;  end
+if isfield(opts, 'transport'), computeOpts.transport = opts.transport; end
+
+result = optarrow.compute(payload, computeOpts);
+end
+
+
+% -------------------------------------------------------------------------
+function val = localGetOr(s, field, default)
+if isstruct(s) && isfield(s, field) && ~isempty(s.(field))
+    val = s.(field);
+else
+    val = default;
 end
 end

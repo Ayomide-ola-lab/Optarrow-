@@ -9,6 +9,10 @@ function result = compute(payload, varargin)
 % it directly to the OptArrow Gateway. No Python interpreter is involved.
 % Requires MATLAB R2023b or later (for Arrow list-array support).
 %
+% If cfg.transport is 'json', the request is sent to /computeJSON using
+% MATLAB's native JSON support. If cfg.transport is 'auto', Arrow IPC is used
+% when the Arrow MATLAB interface is installed; otherwise JSON is used.
+%
 % USAGE:
 %
 %    result = optarrow.compute(payload)
@@ -68,6 +72,13 @@ if nargin >= 2 && isstruct(varargin{1})
 end
 if isfield(opts, 'endpoint'),   cfg.endpoint   = opts.endpoint;   end
 if isfield(opts, 'timeoutSec'), cfg.timeoutSec = opts.timeoutSec; end
+if isfield(opts, 'transport'),  cfg.transport  = opts.transport;  end
+
+transport = localResolveTransport(cfg);
+if strcmp(transport, 'json')
+    result = localComputeJSON(payload, cfg);
+    return;
+end
 
 % Build Arrow IPC request bytes
 requestBytes = localBuildRequest(payload, cfg);
@@ -81,6 +92,139 @@ end
 
 
 % =========================================================================
+% Transport selection / JSON fallback
+% =========================================================================
+function transport = localResolveTransport(cfg)
+transport = 'auto';
+if isfield(cfg, 'transport') && ~isempty(cfg.transport)
+    transport = lower(char(string(cfg.transport)));
+end
+
+if strcmp(transport, 'auto')
+    if localArrowAvailable()
+        transport = 'arrow';
+    else
+        transport = 'json';
+    end
+elseif ~ismember(transport, {'arrow', 'json'})
+    error('optarrow.compute: transport must be auto, arrow, or json.');
+end
+end
+
+function tf = localArrowAvailable()
+% which() finds M-files, P-files, MEX files, and class methods — unlike
+% exist(...,'file')==2 which only matches plain M-files.
+tf = ~isempty(which('arrow.recordBatch'));
+end
+
+function result = localComputeJSON(payload, cfg)
+jsonPayload = localJsonPayload(payload, cfg);
+endpoint = localJsonEndpoint(cfg.endpoint);
+
+opts = weboptions( ...
+    'MediaType', 'application/json', ...
+    'RequestMethod', 'post', ...
+    'Timeout', double(cfg.timeoutSec));
+
+try
+    result = webwrite(endpoint, jsonPayload, opts);
+catch ME
+    err = struct( ...
+        'identifier', 'optarrow:computeJSONError', ...
+        'message', sprintf('JSON request to %s failed: %s', endpoint, ME.message));
+    error(err);
+end
+end
+
+function jsonPayload = localJsonPayload(payload, cfg)
+jsonPayload = struct();
+jsonPayload.model = localJsonModel(payload.model);
+
+if isfield(payload, 'model_name') && ~isempty(payload.model_name)
+    jsonPayload.model_name = payload.model_name;
+else
+    jsonPayload.model_name = 'matlab_model';
+end
+
+if isfield(payload, 'engine') && ~isempty(payload.engine)
+    jsonPayload.engine = payload.engine;
+elseif isfield(cfg, 'engine') && ~isempty(cfg.engine)
+    jsonPayload.engine = cfg.engine;
+else
+    jsonPayload.engine = 'python';
+end
+
+if isfield(payload, 'solver') && isstruct(payload.solver)
+    jsonPayload.solver = payload.solver;
+else
+    solver = struct();
+    if isfield(payload, 'solver_name') && ~isempty(payload.solver_name)
+        solver.solver_name = payload.solver_name;
+    else
+        solver.solver_name = cfg.backendSolver;
+    end
+    if isfield(payload, 'problem_type') && ~isempty(payload.problem_type)
+        solver.solver_type = payload.problem_type;
+    else
+        solver.solver_type = cfg.backendSolverType;
+    end
+    if isfield(payload, 'solver_params') && isstruct(payload.solver_params)
+        solver.solver_params = payload.solver_params;
+    else
+        solver.solver_params = cfg.backendOptions;
+    end
+    jsonPayload.solver = solver;
+end
+
+if isfield(payload, 'time_limit') && ~isempty(payload.time_limit)
+    jsonPayload.time_limit = payload.time_limit;
+end
+end
+
+function model = localJsonModel(model)
+if isfield(model, 'A') && isstruct(model.A)
+    model.A = localJsonCOO(model.A);
+end
+if isfield(model, 'Q') && isstruct(model.Q)
+    model.Q = localJsonCOO(model.Q);
+end
+if isfield(model, 'F') && isstruct(model.F)
+    model.F = localJsonCOO(model.F);
+end
+% Convert COBRA numeric osense (-1=max, +1=min) to string for server.
+if isfield(model, 'osense') && isnumeric(model.osense)
+    if model.osense == -1
+        model.osense = 'max';
+    else
+        model.osense = 'min';
+    end
+end
+end
+
+function coo = localJsonCOO(coo)
+% /computeJSON reconstructs sparse matrices from row/col/val only.
+% The Arrow IPC path uses shape separately, but including it here makes
+% pyarrow.RecordBatch.from_pydict see columns of unequal length.
+if isfield(coo, 'shape')
+    coo = rmfield(coo, 'shape');
+end
+end
+
+function endpoint = localJsonEndpoint(endpoint)
+endpoint = char(string(endpoint));
+if endsWith(endpoint, '/computeJSON')
+    return;
+elseif endsWith(endpoint, '/cobra/compute')
+    endpoint = regexprep(endpoint, '/cobra/compute$', '/computeJSON');
+elseif endsWith(endpoint, '/compute')
+    endpoint = regexprep(endpoint, '/compute$', '/computeJSON');
+else
+    endpoint = [regexprep(endpoint, '/$', '') '/computeJSON'];
+end
+end
+
+
+% =========================================================================
 % Build Arrow IPC request
 % =========================================================================
 function ipcBytes = localBuildRequest(payload, cfg)
@@ -89,7 +233,11 @@ problemType = upper(char(string(payload.problem_type)));
 engine      = char(string(payload.engine));
 solverName  = char(string(payload.solver_name));
 modelName   = char(string(payload.model_name));
-timeLimit   = double(payload.time_limit);
+if isfield(payload, 'time_limit') && ~isempty(payload.time_limit)
+    timeLimit = double(payload.time_limit);
+else
+    timeLimit = 300;
+end
 
 model = payload.model;
 
@@ -168,8 +316,24 @@ import matlab.net.http.field.*
 import matlab.net.http.io.*
 
 contentType = ContentTypeField('application/vnd.apache.arrow.stream');
-body        = MessageBody(ipcBytes);
-request     = RequestMessage(RequestMethod.POST, contentType, body);
+try
+    provider = matlab.net.http.io.ByteArrayProvider(ipcBytes);
+    request  = RequestMessage(RequestMethod.POST, contentType, provider);
+catch
+    % Fallback for older MATLAB versions without ByteArrayProvider.
+    tmpFile = [tempname '.arrow'];
+    cleanup = onCleanup(@() localDeleteFile(tmpFile)); %#ok<NASGU>
+
+    fid = fopen(tmpFile, 'wb');
+    if fid == -1
+        error('optarrow.compute: could not write temporary Arrow request file.');
+    end
+    fwrite(fid, ipcBytes, 'uint8');
+    fclose(fid);
+
+    provider = matlab.net.http.io.FileProvider(tmpFile);
+    request  = RequestMessage(RequestMethod.POST, contentType, provider);
+end
 
 opts = matlab.net.http.HTTPOptions( ...
     'ConnectTimeout', double(timeoutSec), ...
@@ -194,18 +358,7 @@ end
 % =========================================================================
 function result = localParseResponse(responseBytes)
 
-% Write bytes to temp file so arrow.io.ipc can read them
-tmpFile = [tempname '.arrow'];
-cleanup = onCleanup(@() localDeleteFile(tmpFile)); %#ok<NASGU>
-
-fid = fopen(tmpFile, 'wb');
-if fid == -1
-    error('optarrow.compute: could not write temporary Arrow response file.');
-end
-fwrite(fid, responseBytes, 'uint8');
-fclose(fid);
-
-reader = arrow.io.ipc.RecordBatchStreamReader(tmpFile);
+reader = arrow.io.ipc.RecordBatchStreamReader.fromBytes(responseBytes(:));
 rb     = reader.read();
 
 result = struct();
@@ -306,13 +459,21 @@ end
 
 function v = localArrowToMatlab(col)
 % Convert an Arrow column (chunk array) to a MATLAB value.
-arr = col.chunk(1);
+if ismethod(col, 'chunk')
+    arr = col.chunk(1);
+else
+    arr = col;
+end
 switch class(arr)
     case {'arrow.array.BooleanArray'}
         v = logical(arr.toMATLAB());
     case {'arrow.array.ListArray'}
-        inner = arr.values;
-        v     = double(inner.toMATLAB())';
+        listVals = arr.toMATLAB();
+        if iscell(listVals) && numel(listVals) == 1
+            v = double(listVals{1}(:))';
+        else
+            v = listVals;
+        end
     case {'arrow.array.StringArray'}
         v = char(arr.toMATLAB());
     otherwise

@@ -1,151 +1,148 @@
-function result = solveQP(QPproblem, varargin)
-% solveQP Solve a quadratic program through OptArrow (general MATLAB interface).
+function result = solveQP(QPproblem, opts)
+% solveQP  Solve a COBRA-style QP problem via the OptArrow Gateway.
 %
 % NOTE:
 %    'optarrow.solveQP(...)' is MATLAB package namespace syntax from the
 %    '+optarrow' folder, not object-oriented method dispatch.
 %
+% Convenience wrapper around optarrow.compute that accepts a standard COBRA
+% QP struct and handles COO serialization automatically.
+%
 % USAGE:
 %
 %    result = optarrow.solveQP(QPproblem)
 %    result = optarrow.solveQP(QPproblem, opts)
-%    import optarrow.*
-%    result = solveQP(QPproblem)
-%    result = solveQP(QPproblem, opts)
 %
 % INPUTS:
-%    QPproblem:    struct with QP model data.
-%                  Required fields:
-%                    - F        double/sparse [n x n], quadratic cost matrix
-%                               (objective: 0.5 * x' * F * x + c' * x)
-%                    - c        double [n x 1] or [1 x n], linear cost coefficients
-%                  Optional fields:
-%                    - A        double/sparse [m x n], constraint matrix
-%                    - b        double [m x 1] or [1 x m], RHS vector
-%                    - lb       double [n x 1] or [1 x n], lower bounds
-%                    - ub       double [n x 1] or [1 x n], upper bounds
-%                    - csense   char/string/cellstr [m x 1], {'L','E','G'}
-%                    - osense   numeric scalar or string ('min'/'max')
+%    QPproblem   struct with fields:
+%                  F / Q   sparse/dense matrix  Hessian (n x n); 'F' takes precedence
+%                  c       double               linear objective vector (n x 1)
+%                  A       sparse/dense matrix  constraint matrix (m x n)
+%                  b       double               RHS vector (m x 1)
+%                  lb      double               lower bounds (n x 1)
+%                  ub      double               upper bounds (n x 1) (optional, default 1e30)
+%                  csense  char/cell/string     sense per row: 'L','E','G'
+%                  osense  numeric/char         -1 or 'max' to maximize, 1 or 'min' to minimize
 %
-% OPTIONAL INPUTS:
-%    opts:         struct with request options.
-%                    - modelName  char/string, model label for backend
-%                    - engine     char/string, backend engine override
-%                    - solver     struct, backend solver specification
-%                    - time_limit numeric scalar, backend time limit
-%                    - endpoint   char/string, OptArrow API endpoint URL
-%                    - timeoutSec numeric scalar, HTTP timeout in seconds
+%    opts        struct (optional) with fields:
+%                  modelName   char     label for logging (default: 'matlab_qp')
+%                  engine      char     'python' | 'julia' (default from config)
+%                  solver      char     'HiGHS' | 'Gurobi' | ... (default from config)
+%                  timeLimit   double   solver time limit in seconds (default: 300)
+%                  endpoint    char     Gateway URL override
+%                  transport   char     'auto' | 'arrow' | 'json'
 %
 % OUTPUT:
-%    result:       struct, decoded JSON response returned by OptArrow.
+%    result   struct with fields:
+%               success  logical
+%               status   char
+%               stat     double   1=optimal, 0=infeasible, 2=unbounded, -1=error
+%               obj_val  double
+%               solution double[]
+%               dual     double[]
+%               rcost    double[]
+%               slack    double[]
 %
 % EXAMPLE:
-%    QP.F = sparse([2 0; 0 2]);
-%    QP.c = [-2; -5];
-%    QP.A = sparse([1 1]);
-%    QP.b = 3;
-%    QP.lb = [0; 0];
-%    QP.csense = 'E';
-%    QP.osense = 1;   % 1=min, -1=max
-%    out = optarrow.solveQP(QP);
+%
+%    QPproblem.F      = sparse([2 0; 0 2]);
+%    QPproblem.c      = [-2; -5];
+%    QPproblem.A      = sparse([1 1]);
+%    QPproblem.b      = 3;
+%    QPproblem.lb     = [0; 0];
+%    QPproblem.csense = 'E';
+%    QPproblem.osense = 1;
+%    result = optarrow.solveQP(QPproblem);
+%
+% .. Author: - Farid Zare 12/04/2026
 
 if nargin < 1 || ~isstruct(QPproblem)
-    error('QPproblem must be provided as a struct.');
+    error('optarrow.solveQP: QPproblem must be a struct.');
+end
+if nargin < 2
+    opts = struct();
 end
 
-opts = struct();
-if nargin >= 2 && isstruct(varargin{1})
-    opts = varargin{1};
+cfg = optarrow.getOptArrowConfig();
+
+modelName = localGetOr(opts, 'modelName', 'matlab_qp');
+engine    = localGetOr(opts, 'engine',    localGetOr(cfg, 'engine',         'python'));
+solver    = localGetOr(opts, 'solver',    localGetOr(cfg, 'backendSolver',  'HiGHS'));
+timeLimit = localGetOr(opts, 'timeLimit', 300);
+
+% Build COO sparse A
+A = QPproblem.A;
+if ~issparse(A), A = sparse(A); end
+[r, c, v] = find(A);
+model.A = struct( ...
+    'row',   int64(r(:)' - 1), ...
+    'col',   int64(c(:)' - 1), ...
+    'val',   double(v(:)'), ...
+    'shape', int64([size(A,1), size(A,2)]));
+
+model.b  = double(QPproblem.b(:)');
+model.c  = double(QPproblem.c(:)');
+model.lb = double(QPproblem.lb(:)');
+
+if isfield(QPproblem, 'ub') && ~isempty(QPproblem.ub)
+    model.ub = double(QPproblem.ub(:)');
+else
+    model.ub = repmat(1e30, 1, size(A,2));
 end
 
-payload = struct();
-payload.model       = localBuildModelDict(QPproblem);
-payload.model_name  = 'optarrow_qp_model';
+if isfield(QPproblem, 'csense') && ~isempty(QPproblem.csense)
+    model.csense = QPproblem.csense;
+else
+    model.csense = repmat('E', size(A,1), 1);
+end
 
-if isfield(opts, 'modelName') && ~isempty(opts.modelName)
-    payload.model_name = opts.modelName;
+if isfield(QPproblem, 'osense')
+    model.osense = QPproblem.osense;
+else
+    model.osense = 'min';
 end
-if isfield(opts, 'engine') && ~isempty(opts.engine)
-    payload.engine = opts.engine;
+
+% Build COO sparse Hessian (F takes precedence over Q)
+hField = '';
+if isfield(QPproblem, 'F') && ~isempty(QPproblem.F)
+    hField = 'F';
+elseif isfield(QPproblem, 'Q') && ~isempty(QPproblem.Q)
+    hField = 'Q';
 end
-if isfield(opts, 'solver') && ~isempty(opts.solver)
-    payload.solver = opts.solver;
+
+if ~isempty(hField)
+    H = QPproblem.(hField);
+    if ~issparse(H), H = sparse(H); end
+    [hr, hc, hv] = find(H);
+    model.F = struct( ...
+        'row',   int64(hr(:)' - 1), ...
+        'col',   int64(hc(:)' - 1), ...
+        'val',   double(hv(:)'), ...
+        'shape', int64([size(H,1), size(H,2)]));
 end
-if isfield(opts, 'time_limit')
-    payload.time_limit = opts.time_limit;
-end
+
+payload               = struct();
+payload.problem_type  = 'QP';
+payload.engine        = engine;
+payload.solver_name   = solver;
+payload.model_name    = modelName;
+payload.time_limit    = timeLimit;
+payload.solver_params = struct();
+payload.model         = model;
 
 computeOpts = struct();
-if isfield(opts, 'endpoint'),   computeOpts.endpoint   = opts.endpoint;   end
-if isfield(opts, 'timeoutSec'), computeOpts.timeoutSec = opts.timeoutSec; end
+if isfield(opts, 'endpoint'),  computeOpts.endpoint  = opts.endpoint;  end
+if isfield(opts, 'transport'), computeOpts.transport = opts.transport; end
 
-if isempty(fieldnames(computeOpts))
-    result = optarrow.compute(payload);
+result = optarrow.compute(payload, computeOpts);
+end
+
+
+% -------------------------------------------------------------------------
+function val = localGetOr(s, field, default)
+if isstruct(s) && isfield(s, field) && ~isempty(s.(field))
+    val = s.(field);
 else
-    result = optarrow.compute(payload, computeOpts);
-end
-end
-
-
-function model = localBuildModelDict(QPproblem)
-if ~isfield(QPproblem, 'F') || isempty(QPproblem.F)
-    error('QPproblem must include field F (quadratic cost matrix).');
-end
-if ~isfield(QPproblem, 'c')
-    error('QPproblem must include field c.');
-end
-
-F = QPproblem.F;
-if ~issparse(F), F = sparse(F); end
-[r, c, v] = find(F);
-model.Q = struct('row', r - 1, 'col', c - 1, 'val', v);
-model.c = QPproblem.c(:)';
-
-if isfield(QPproblem, 'lb') && ~isempty(QPproblem.lb)
-    model.lb = QPproblem.lb(:)';
-else
-    model.lb = zeros(1, size(F, 2));
-end
-if isfield(QPproblem, 'ub') && ~isempty(QPproblem.ub)
-    model.ub = QPproblem.ub(:)';
-end
-
-model.osense = localNormalizeOsense(QPproblem);
-
-if isfield(QPproblem, 'A') && ~isempty(QPproblem.A)
-    A = QPproblem.A;
-    if ~issparse(A), A = sparse(A); end
-    [ra, ca, va] = find(A);
-    model.A = struct('row', ra - 1, 'col', ca - 1, 'val', va);
-    model.b = QPproblem.b(:)';
-    model.csense = localNormalizeCsense(QPproblem, size(A, 1));
-end
-end
-
-function csense = localNormalizeCsense(QPproblem, nRows)
-if isfield(QPproblem, 'csense') && ~isempty(QPproblem.csense)
-    raw = QPproblem.csense;
-    if ischar(raw),   csense = cellstr(raw(:));
-    elseif isstring(raw), csense = cellstr(raw(:));
-    elseif iscell(raw),   csense = raw;
-    else, error('Unsupported csense format.');
-    end
-else
-    csense = repmat({'E'}, nRows, 1);
-end
-csense = cellstr(upper(string(csense)));
-end
-
-function osense = localNormalizeOsense(QPproblem)
-if ~isfield(QPproblem, 'osense') || isempty(QPproblem.osense)
-    osense = 'min';
-    return;
-end
-if isnumeric(QPproblem.osense)
-    osense = 'max';
-    if QPproblem.osense ~= -1, osense = 'min'; end
-else
-    osense = 'min';
-    if strcmpi(string(QPproblem.osense), 'max'), osense = 'max'; end
+    val = default;
 end
 end
