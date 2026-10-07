@@ -1,0 +1,8 @@
+# Evidence-Gap Assessment: Assessment of Claims against Base Practices
+
+| Base Practice | Status | Rationale |
+|---|---|---|
+| Prepare for software system design definition | **EvidenceStatus.PARTIAL_EVIDENCE** | The claim of HiGHS open-source solver aligns partially with the intentions of this base practice, particularly in selecting and prioritizing open-source principles which may integrate into the design definition strategy. However, details on the comprehensive preparation aspects as per the practice description are not evidenced. |
+| Establish designs related to each software system element | **EvidenceStatus.NO_EVIDENCE_IDENTIFIED** | No direct evidence suggests how the HiGHS solver impacts the transformation of architectural characteristics or establishing necessary design enablers as described in this base practice. The claim lacks systematic trials or alternative assessments that would support evidence for this practice. |
+| Assess alternatives for obtaining software system elements | **EvidenceStatus.PARTIAL_EVIDENCE** | While the HiGHS solver selection suggests some candidate evaluation, the claim itself admits lack of systematic trials which would be necessary to assess alternatives rigorously. Thus, the evidence is partial since there is some indication of alternative assessment but not to the depth required. |
+| Manage the design | **EvidenceStatus.NO_EVIDENCE_IDENTIFIED** | The claim primarily refers to solver selection rather than broader design management activities, such as establishing traceability or providing baselines. There is insufficient evidence identifying how the design was managed as per this practice's description. |
